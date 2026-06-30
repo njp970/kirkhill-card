@@ -1,0 +1,82 @@
+# Kirk Hill Wind Farm — Lovelace card
+
+[![hacs][hacs-badge]][hacs] [![CI][ci-badge]][ci]
+
+A companion Lovelace card for the [Kirk Hill Wind Farm integration][integration].
+It renders a turbine map with spinning rotors, a per-turbine status table, and an
+optional revenue panel — reading entity state/attributes only (no API calls).
+
+> Try it without Home Assistant: open `examples/demo.html` (see Development).
+
+## Features
+
+- **Turbine map** — each of the 8 turbines is positioned from its real
+  coordinates and drawn as an SVG rotor that **spins at a rate proportional to
+  `latest_rotor_speed_rpm`** and is coloured by running / stopped / unknown.
+- **Status table** — generation (kWh), generation share (%) and capacity factor
+  (%) per turbine, with a status dot.
+- **Revenue panel** — a headline month-to-date figure plus a year-to-date
+  monthly bar chart, taken from the `monthly` attribute of the YTD revenue
+  sensor. Hidden / prompts you when no £/MWh price is configured.
+
+## Requirements
+
+The [Kirk Hill Wind Farm integration][integration] must be installed and
+configured — the card reads its entities.
+
+## Installation
+
+### HACS (recommended)
+
+1. HACS → **Frontend** → ⋮ → **Custom repositories**, add
+   `https://github.com/njp970/kirkhill-card` with category **Lovelace**.
+2. Install **Kirk Hill Wind Farm Card**.
+3. HACS adds the resource automatically. (If not: **Settings → Dashboards → ⋮ →
+   Resources → Add** `/hacsfiles/kirkhill-card/kirkhill-card.js` as a JavaScript
+   module.)
+
+### Manual
+
+Copy `dist/kirkhill-card.js` to `config/www/kirkhill-card.js`, then add a
+dashboard resource pointing at `/local/kirkhill-card.js` (JavaScript module).
+
+## Usage
+
+```yaml
+type: custom:kirkhill-card
+title: Kirk Hill Wind Farm
+```
+
+### Options
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `title` | `Kirk Hill Wind Farm` | Card heading. |
+| `turbine_prefix` | `turbine` | Object-id prefix for turbine entities, e.g. `binary_sensor.<prefix>_t1_running`. |
+| `site_prefix` | `kirk_hill_wind_farm` | Object-id prefix for the site revenue sensors. |
+
+The defaults match the integration's default entity names. Only change these if
+you renamed the devices/entities.
+
+## Development
+
+```bash
+npm install
+npm run typecheck
+npm run build      # -> dist/kirkhill-card.js (committed for HACS)
+```
+
+`examples/demo.html` renders the card against mock data for quick local preview
+(`npx serve` or any static server, then open the page).
+
+## Brands / logo
+
+Frontend plugins don't require a brands submission, but the parent integration's
+`kirkhill` domain can be added to [home-assistant/brands][brands] for its icon.
+
+[integration]: https://github.com/njp970/ha_kirkhill
+[brands]: https://github.com/home-assistant/brands
+[hacs]: https://github.com/hacs/integration
+[hacs-badge]: https://img.shields.io/badge/HACS-Custom-41BDF5.svg
+[ci]: https://github.com/njp970/kirkhill-card/actions/workflows/ci.yml
+[ci-badge]: https://github.com/njp970/kirkhill-card/actions/workflows/ci.yml/badge.svg

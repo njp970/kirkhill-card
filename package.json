@@ -1,0 +1,27 @@
+{
+  "name": "kirkhill-card",
+  "version": "0.1.0",
+  "description": "Lovelace card for the Kirk Hill Wind Farm Home Assistant integration",
+  "type": "module",
+  "license": "MIT",
+  "author": "Neil Parkes",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/njp970/kirkhill-card"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "esbuild src/kirkhill-card.ts --bundle --format=esm --minify --legal-comments=none --outfile=dist/kirkhill-card.js",
+    "test": "node test/render.mjs",
+    "check": "npm run typecheck && npm run build && npm test"
+  },
+  "dependencies": {
+    "lit": "^3.2.1"
+  },
+  "devDependencies": {
+    "@happy-dom/global-registrator": "^20.10.6",
+    "esbuild": "^0.25.0",
+    "happy-dom": "^20.10.6",
+    "typescript": "^5.7.2"
+  }
+}

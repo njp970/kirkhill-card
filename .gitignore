@@ -1,0 +1,6 @@
+node_modules/
+*.tsbuildinfo
+.DS_Store
+.vscode/
+.idea/
+# dist/ is committed so HACS can serve the prebuilt card.

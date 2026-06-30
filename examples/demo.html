@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>kirkhill-card demo</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        background: #f5f5f5;
+        --primary-text-color: #212121;
+        --secondary-text-color: #727272;
+        --secondary-background-color: #e8eef0;
+        --divider-color: #e0e0e0;
+        --primary-color: #2e7d32;
+        --card-background-color: #fff;
+        margin: 0;
+        padding: 24px;
+      }
+      .wrap {
+        max-width: 720px;
+        margin: 0 auto;
+      }
+      /* Minimal stand-in for HA's <ha-card>. */
+      ha-card {
+        display: block;
+        background: var(--card-background-color);
+        border-radius: 12px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <kirkhill-card id="card"></kirkhill-card>
+    </div>
+
+    <script type="module">
+      // Minimal ha-card so the demo looks card-like outside Home Assistant.
+      if (!customElements.get("ha-card")) {
+        customElements.define("ha-card", class extends HTMLElement {});
+      }
+
+      // Eight turbines spread around the real Kirk Hill location.
+      const baseLat = 55.3048;
+      const baseLon = -4.7458;
+      const layout = [
+        [0, 0], [0.6, 0.3], [1.2, 0.1], [1.8, 0.5],
+        [0.3, 1.1], [0.9, 1.4], [1.5, 1.2], [2.0, 1.6],
+      ];
+      const rpm = [16.14, 15.32, 16.07, 16.68, 15.83, 11.93, 0, null];
+      const gen = [1.34, 1.098, 1.033, 1.086, 0.825, 0.627, 0.0, 0.585];
+      const share = [19.03, 15.6, 14.68, 15.43, 11.72, 8.91, 0.0, 8.31];
+      const cf = [39.75, 38.1, 37.6, 40.2, 30.4, 22.1, 0.0, 21.6];
+
+      const states = {};
+      for (let i = 0; i < 8; i++) {
+        const n = i + 1;
+        const r = rpm[i];
+        const running = r === null ? "unknown" : r > 0 ? "on" : "off";
+        states[`binary_sensor.turbine_t${n}_running`] = {
+          entity_id: `binary_sensor.turbine_t${n}_running`,
+          state: running,
+          attributes: {
+            latitude: baseLat + layout[i][1] * 0.004,
+            longitude: baseLon + layout[i][0] * 0.004,
+            rotor_speed_rpm: r,
+            latest_generation_interval_end: "2026-06-30T10:03:00Z",
+          },
+        };
+        states[`sensor.turbine_t${n}_generation`] = {
+          entity_id: `sensor.turbine_t${n}_generation`,
+          state: String(gen[i]),
+          attributes: {},
+        };
+        states[`sensor.turbine_t${n}_generation_share`] = {
+          entity_id: `sensor.turbine_t${n}_generation_share`,
+          state: String(share[i]),
+          attributes: {},
+        };
+        states[`sensor.turbine_t${n}_capacity_factor`] = {
+          entity_id: `sensor.turbine_t${n}_capacity_factor`,
+          state: String(cf[i]),
+          attributes: {},
+        };
+      }
+
+      const monthly = [220, 260, 310, 280, 240, 150, 0, 0, 0, 0, 0, 0].map(
+        (v, idx) => ({ month: idx + 1, generation_kwh: v * 20, revenue_gbp: v }),
+      );
+      states["sensor.kirk_hill_wind_farm_revenue_month_to_date"] = {
+        entity_id: "sensor.kirk_hill_wind_farm_revenue_month_to_date",
+        state: "150.0",
+        attributes: { unit_of_measurement: "GBP" },
+      };
+      states["sensor.kirk_hill_wind_farm_revenue_year_to_date"] = {
+        entity_id: "sensor.kirk_hill_wind_farm_revenue_year_to_date",
+        state: "1460.0",
+        attributes: { unit_of_measurement: "GBP", monthly },
+      };
+
+      await import("../dist/kirkhill-card.js");
+      const card = document.getElementById("card");
+      card.setConfig({ type: "custom:kirkhill-card", title: "Kirk Hill Wind Farm" });
+      card.hass = { states };
+    </script>
+  </body>
+</html>
