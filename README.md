@@ -82,13 +82,7 @@ npm run build      # -> dist/kirkhill-card.js (committed for HACS)
 `examples/demo.html` renders the card against mock data for quick local preview
 (`npx serve` or any static server, then open the page).
 
-## Brands / logo
-
-Frontend plugins don't require a brands submission, but the parent integration's
-`kirkhill` domain can be added to [home-assistant/brands][brands] for its icon.
-
 [integration]: https://github.com/njp970/ha_kirkhill
-[brands]: https://github.com/home-assistant/brands
 [hacs]: https://github.com/hacs/integration
 [hacs-badge]: https://img.shields.io/badge/HACS-Custom-41BDF5.svg
 [ci]: https://github.com/njp970/kirkhill-card/actions/workflows/ci.yml
