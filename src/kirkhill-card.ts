@@ -19,6 +19,7 @@ interface HomeAssistant {
 }
 
 type PanelName = "map" | "table" | "revenue";
+type MapStyle = "dark" | "light" | "voyager";
 
 interface KirkhillCardConfig {
   type: string;
@@ -27,6 +28,8 @@ interface KirkhillCardConfig {
   site_prefix?: string;
   /** Which panels to show; defaults to all three. */
   panels?: PanelName[];
+  /** Basemap style; defaults to "dark". */
+  map_style?: MapStyle;
 }
 
 interface MonthlyItem {
@@ -55,8 +58,13 @@ const MAP_W = 360;
 const MAP_H = 300;
 const MAP_PAD = 52;
 const TILE_SIZE = 256;
-const TILE_URL = (z: number, x: number, y: number) =>
-  `https://a.basemaps.cartocdn.com/dark_all/${z}/${x}/${y}.png`;
+const TILE_BASEMAP: Record<MapStyle, string> = {
+  dark: "dark_all",
+  light: "light_all",
+  voyager: "rastertiles/voyager",
+};
+const tileUrl = (style: MapStyle, z: number, x: number, y: number) =>
+  `https://a.basemaps.cartocdn.com/${TILE_BASEMAP[style]}/${z}/${x}/${y}.png`;
 
 /** Longitude → global pixel X at zoom z. */
 function lon2px(lon: number, z: number): number {
@@ -139,6 +147,10 @@ export class KirkhillCard extends LitElement {
     }
     svg.map image {
       image-rendering: auto;
+    }
+    /* CARTO dark is very dark on a black dashboard — lift it for visibility. */
+    svg.map.dark image {
+      filter: brightness(1.7) contrast(1.05) saturate(0.95);
     }
     .turbine-label {
       font-size: 9px;
@@ -338,6 +350,7 @@ export class KirkhillCard extends LitElement {
       return html`<div class="empty">No turbine coordinates available.</div>`;
     }
 
+    const style: MapStyle = this._config.map_style ?? "dark";
     const z = this._chooseZoom(withCoords);
     const xs = withCoords.map((t) => lon2px(t.lon as number, z));
     const ys = withCoords.map((t) => lat2px(t.lat as number, z));
@@ -353,13 +366,13 @@ export class KirkhillCard extends LitElement {
         if (ty < 0 || ty >= maxTile) continue;
         const wx = ((tx % maxTile) + maxTile) % maxTile;
         tiles.push(
-          svg`<image href="${TILE_URL(z, wx, ty)}" x="${tx * TILE_SIZE - left}" y="${ty * TILE_SIZE - top}" width="${TILE_SIZE}" height="${TILE_SIZE}" />`,
+          svg`<image href="${tileUrl(style, z, wx, ty)}" x="${tx * TILE_SIZE - left}" y="${ty * TILE_SIZE - top}" width="${TILE_SIZE}" height="${TILE_SIZE}" />`,
         );
       }
     }
 
     return html`
-      <svg class="map" viewBox="0 0 ${MAP_W} ${MAP_H}" role="img" aria-label="Turbine map">
+      <svg class="map ${style}" viewBox="0 0 ${MAP_W} ${MAP_H}" role="img" aria-label="Turbine map">
         <defs>
           <clipPath id="${this._mapClipId}">
             <rect x="0" y="0" width="${MAP_W}" height="${MAP_H}" rx="10" />
@@ -519,4 +532,4 @@ window.customCards.push({
 });
 
 // eslint-disable-next-line no-console
-console.info("%c kirkhill-card %c 0.2.0 ", "background:#2e7d32;color:#fff", "");
+console.info("%c kirkhill-card %c 0.2.1 ", "background:#2e7d32;color:#fff", "");
