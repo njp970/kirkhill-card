@@ -1,6 +1,6 @@
 {
   "name": "kirkhill-card",
-  "version": "0.1.0",
+  "version": "0.2.2",
   "description": "Lovelace card for the Kirk Hill Wind Farm Home Assistant integration",
   "type": "module",
   "license": "MIT",

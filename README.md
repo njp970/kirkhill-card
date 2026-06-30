@@ -51,12 +51,25 @@ title: Kirk Hill Wind Farm
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `title` | `Kirk Hill Wind Farm` | Card heading. |
+| `title` | `Kirk Hill Wind Farm` | Card heading. Set to `""` to hide it (e.g. when using a dashboard section heading). |
+| `panels` | `[map, table, revenue]` | Which panels to render. Use a subset to split the card up, e.g. `panels: [map]` for a map-only panel. |
+| `map_style` | `dark` | Basemap style: `dark`, `light`, or `voyager` (colour). |
 | `turbine_prefix` | `turbine` | Object-id prefix for turbine entities, e.g. `binary_sensor.<prefix>_t1_running`. |
 | `site_prefix` | `kirk_hill_wind_farm` | Object-id prefix for the site revenue sensors. |
 
-The defaults match the integration's default entity names. Only change these if
-you renamed the devices/entities.
+The defaults match the integration's default entity names. Only change the
+prefixes if you renamed the devices/entities.
+
+#### Examples
+
+A map-only panel on a Voyager basemap (handy for a two-column dashboard):
+
+```yaml
+type: custom:kirkhill-card
+title: ""
+panels: [map]
+map_style: voyager
+```
 
 ## Development
 
