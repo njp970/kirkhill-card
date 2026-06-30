@@ -53,16 +53,28 @@ const rotorCount = (html.match(/class="rotor/g) || []).length;
 const stoppedCount = (html.match(/rotor stopped/g) || []).length;
 const barCount = (html.match(/class="bar"/g) || []).length;
 
+// panels:[map] should render the map only (no table, no revenue).
+const mapOnly = document.createElement("kirkhill-card");
+mapOnly.setConfig({ type: "custom:kirkhill-card", panels: ["map"], title: "" });
+mapOnly.hass = { states };
+document.body.appendChild(mapOnly);
+await mapOnly.updateComplete;
+const mapHtml = mapOnly.shadowRoot.innerHTML;
+
 const checks = [
   ["card defined", !!customElements.get("kirkhill-card")],
   ["title rendered", html.includes("Kirk Hill Wind Farm")],
   ["map svg", html.includes("<svg")],
+  ["map basemap tiles", html.includes("basemaps.cartocdn.com")],
   ["8 turbine markers (T8)", html.includes(">T8<")],
   ["8 rotors", rotorCount === 8],
   ["stopped/unknown not spinning", stoppedCount === 2], // T7 (0 rpm) + T8 (null)
   ["status table", html.includes("Cap. factor")],
   ["revenue headline £150", html.includes("£150.00")],
   ["12 monthly bars", barCount === 12],
+  ["panels:[map] shows map", mapHtml.includes("basemaps.cartocdn.com")],
+  ["panels:[map] hides table", !mapHtml.includes("Cap. factor")],
+  ["panels:[map] hides revenue", !mapHtml.includes("£")],
 ];
 
 let ok = true;

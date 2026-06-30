@@ -18,11 +18,15 @@ interface HomeAssistant {
   states: Record<string, HassEntity>;
 }
 
+type PanelName = "map" | "table" | "revenue";
+
 interface KirkhillCardConfig {
   type: string;
   title?: string;
   turbine_prefix?: string;
   site_prefix?: string;
+  /** Which panels to show; defaults to all three. */
+  panels?: PanelName[];
 }
 
 interface MonthlyItem {
@@ -44,9 +48,26 @@ interface Turbine {
 }
 
 const MONTH_LABELS = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
-const VIEW_W = 320;
-const VIEW_H = 240;
-const PAD = 40;
+
+// Map rendering: a real slippy-map basemap (CARTO dark — the same tiles Home
+// Assistant's own map uses) projected with web-mercator, turbines overlaid.
+const MAP_W = 360;
+const MAP_H = 300;
+const MAP_PAD = 52;
+const TILE_SIZE = 256;
+const TILE_URL = (z: number, x: number, y: number) =>
+  `https://a.basemaps.cartocdn.com/dark_all/${z}/${x}/${y}.png`;
+
+/** Longitude → global pixel X at zoom z. */
+function lon2px(lon: number, z: number): number {
+  return ((lon + 180) / 360) * Math.pow(2, z) * TILE_SIZE;
+}
+
+/** Latitude → global pixel Y at zoom z (web-mercator). */
+function lat2px(lat: number, z: number): number {
+  const s = Math.sin((lat * Math.PI) / 180);
+  return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * Math.pow(2, z) * TILE_SIZE;
+}
 
 const gbp = new Intl.NumberFormat("en-GB", {
   style: "currency",
@@ -79,6 +100,8 @@ export class KirkhillCard extends LitElement {
     _config: { state: true },
   };
 
+  private _mapClipId = `khmap-${Math.random().toString(36).slice(2, 9)}`;
+
   static styles = css`
     ha-card {
       padding: 16px;
@@ -92,6 +115,9 @@ export class KirkhillCard extends LitElement {
       display: grid;
       grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
       gap: 16px;
+    }
+    .panels.single {
+      grid-template-columns: 1fr;
     }
     @media (max-width: 600px) {
       .panels {
@@ -108,13 +134,25 @@ export class KirkhillCard extends LitElement {
     svg.map {
       width: 100%;
       height: auto;
-      background: var(--kh-map-bg, var(--secondary-background-color));
-      border-radius: 8px;
+      background: var(--kh-map-bg, #0b0c0e);
+      border-radius: 10px;
+    }
+    svg.map image {
+      image-rendering: auto;
     }
     .turbine-label {
       font-size: 9px;
-      fill: var(--primary-text-color);
+      font-weight: 600;
+      fill: #fff;
+      stroke: rgba(0, 0, 0, 0.85);
+      stroke-width: 0.5px;
+      paint-order: stroke;
       text-anchor: middle;
+    }
+    .map-attr {
+      font-size: 7px;
+      fill: rgba(255, 255, 255, 0.55);
+      text-anchor: end;
     }
     .rotor {
       transform-box: fill-box;
@@ -261,28 +299,16 @@ export class KirkhillCard extends LitElement {
     return turbines;
   }
 
-  /** Project turbine lat/lon into the SVG viewport. */
-  private _positions(turbines: Turbine[]): Record<string, { x: number; y: number }> {
-    const withCoords = turbines.filter((t) => t.lat !== null && t.lon !== null);
-    const positions: Record<string, { x: number; y: number }> = {};
-    if (withCoords.length === 0) return positions;
-
-    const lats = withCoords.map((t) => t.lat as number);
-    const lons = withCoords.map((t) => t.lon as number);
-    const minLat = Math.min(...lats);
-    const maxLat = Math.max(...lats);
-    const minLon = Math.min(...lons);
-    const maxLon = Math.max(...lons);
-    const latSpan = maxLat - minLat || 1e-4;
-    const lonSpan = maxLon - minLon || 1e-4;
-
-    for (const t of withCoords) {
-      const x = PAD + ((t.lon as number) - minLon) / lonSpan * (VIEW_W - 2 * PAD);
-      // Latitude grows north → invert the y axis.
-      const y = PAD + (maxLat - (t.lat as number)) / latSpan * (VIEW_H - 2 * PAD);
-      positions[t.id] = { x, y };
+  /** Pick the highest zoom at which all turbines still fit the padded map. */
+  private _chooseZoom(turbines: Turbine[]): number {
+    for (let z = 17; z >= 8; z--) {
+      const xs = turbines.map((t) => lon2px(t.lon as number, z));
+      const ys = turbines.map((t) => lat2px(t.lat as number, z));
+      const w = Math.max(...xs) - Math.min(...xs);
+      const h = Math.max(...ys) - Math.min(...ys);
+      if (w <= MAP_W - 2 * MAP_PAD && h <= MAP_H - 2 * MAP_PAD) return z;
     }
-    return positions;
+    return 8;
   }
 
   private _renderTurbineMarker(t: Turbine, x: number, y: number): TemplateResult {
@@ -296,27 +322,57 @@ export class KirkhillCard extends LitElement {
     return svg`
       <g transform="translate(${x}, ${y})">
         <title>${t.id} — ${t.running} — ${num(t.rpm, 1, " rpm")}</title>
-        <circle r="12" fill="var(--card-background-color, #fff)" stroke="${color}" stroke-width="2" />
+        <circle r="11" fill="rgba(20,22,26,0.62)" stroke="${color}" stroke-width="2" />
         <g class="rotor ${stopped ? "stopped" : ""}" style="${stopped ? "" : `animation-duration:${duration}s`}">
           ${blades}
           <circle r="2.4" fill="${color}" />
         </g>
-        <text class="turbine-label" y="24">${t.id}</text>
+        <text class="turbine-label" y="23">${t.id}</text>
       </g>
     `;
   }
 
   private _renderMap(turbines: Turbine[]): TemplateResult {
-    const positions = this._positions(turbines);
-    if (Object.keys(positions).length === 0) {
+    const withCoords = turbines.filter((t) => t.lat !== null && t.lon !== null);
+    if (withCoords.length === 0) {
       return html`<div class="empty">No turbine coordinates available.</div>`;
     }
+
+    const z = this._chooseZoom(withCoords);
+    const xs = withCoords.map((t) => lon2px(t.lon as number, z));
+    const ys = withCoords.map((t) => lat2px(t.lat as number, z));
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+    const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+    const left = cx - MAP_W / 2;
+    const top = cy - MAP_H / 2;
+    const maxTile = Math.pow(2, z);
+
+    const tiles: TemplateResult[] = [];
+    for (let tx = Math.floor(left / TILE_SIZE); tx <= Math.floor((left + MAP_W) / TILE_SIZE); tx++) {
+      for (let ty = Math.floor(top / TILE_SIZE); ty <= Math.floor((top + MAP_H) / TILE_SIZE); ty++) {
+        if (ty < 0 || ty >= maxTile) continue;
+        const wx = ((tx % maxTile) + maxTile) % maxTile;
+        tiles.push(
+          svg`<image href="${TILE_URL(z, wx, ty)}" x="${tx * TILE_SIZE - left}" y="${ty * TILE_SIZE - top}" width="${TILE_SIZE}" height="${TILE_SIZE}" />`,
+        );
+      }
+    }
+
     return html`
-      <svg class="map" viewBox="0 0 ${VIEW_W} ${VIEW_H}" role="img" aria-label="Turbine map">
-        ${turbines.map((t) => {
-          const pos = positions[t.id];
-          return pos ? this._renderTurbineMarker(t, pos.x, pos.y) : nothing;
-        })}
+      <svg class="map" viewBox="0 0 ${MAP_W} ${MAP_H}" role="img" aria-label="Turbine map">
+        <defs>
+          <clipPath id="${this._mapClipId}">
+            <rect x="0" y="0" width="${MAP_W}" height="${MAP_H}" rx="10" />
+          </clipPath>
+        </defs>
+        <g clip-path="url(#${this._mapClipId})">
+          ${tiles}
+          ${withCoords.map((t) =>
+            this._renderTurbineMarker(t, lon2px(t.lon as number, z) - left, lat2px(t.lat as number, z) - top),
+          )}
+          <text class="map-attr" x="${MAP_W - 5}" y="${MAP_H - 6}">© OpenStreetMap © CARTO</text>
+        </g>
+        <rect x="0.5" y="0.5" width="${MAP_W - 1}" height="${MAP_H - 1}" rx="10" fill="none" stroke="var(--divider-color)" />
       </svg>
     `;
   }
@@ -410,20 +466,36 @@ export class KirkhillCard extends LitElement {
       `;
     }
 
+    const panels = this._config.panels ?? ["map", "table", "revenue"];
+    const showMap = panels.includes("map");
+    const showTable = panels.includes("table");
+    const showRevenue = panels.includes("revenue");
+
+    const mapBlock = showMap
+      ? html`<div>
+          <div class="panel-label">Turbines</div>
+          ${this._renderMap(turbines)}
+        </div>`
+      : nothing;
+    const tableBlock = showTable
+      ? html`<div>
+          <div class="panel-label">Status</div>
+          ${this._renderTable(turbines)}
+        </div>`
+      : nothing;
+
+    // Two-up only when both map and table are shown; otherwise full width.
+    const topClass = showMap && showTable ? "panels" : "panels single";
+
     return html`
       <ha-card>
-        <div class="title">${title}</div>
-        <div class="panels">
-          <div>
-            <div class="panel-label">Turbines</div>
-            ${this._renderMap(turbines)}
-          </div>
-          <div>
-            <div class="panel-label">Status</div>
-            ${this._renderTable(turbines)}
-          </div>
-        </div>
-        ${this._renderRevenue()}
+        ${this._config.title === ""
+          ? nothing
+          : html`<div class="title">${title}</div>`}
+        ${showMap || showTable
+          ? html`<div class="${topClass}">${mapBlock}${tableBlock}</div>`
+          : nothing}
+        ${showRevenue ? this._renderRevenue() : nothing}
       </ha-card>
     `;
   }
@@ -447,4 +519,4 @@ window.customCards.push({
 });
 
 // eslint-disable-next-line no-console
-console.info("%c kirkhill-card %c 0.1.0 ", "background:#2e7d32;color:#fff", "");
+console.info("%c kirkhill-card %c 0.2.0 ", "background:#2e7d32;color:#fff", "");
