@@ -166,6 +166,23 @@ export class KirkhillCard extends LitElement {
       fill: rgba(255, 255, 255, 0.55);
       text-anchor: end;
     }
+    /* Markers default to dark-map styling; flip for light basemaps. */
+    .marker-disc {
+      fill: rgba(18, 20, 24, 0.6);
+    }
+    .map.light .marker-disc,
+    .map.voyager .marker-disc {
+      fill: rgba(255, 255, 255, 0.82);
+    }
+    .map.light .turbine-label,
+    .map.voyager .turbine-label {
+      fill: #16181d;
+      stroke: rgba(255, 255, 255, 0.92);
+    }
+    .map.light .map-attr,
+    .map.voyager .map-attr {
+      fill: rgba(0, 0, 0, 0.5);
+    }
     .rotor {
       transform-box: fill-box;
       transform-origin: center;
@@ -334,7 +351,7 @@ export class KirkhillCard extends LitElement {
     return svg`
       <g transform="translate(${x}, ${y})">
         <title>${t.id} — ${t.running} — ${num(t.rpm, 1, " rpm")}</title>
-        <circle r="11" fill="rgba(20,22,26,0.62)" stroke="${color}" stroke-width="2" />
+        <circle class="marker-disc" r="11" stroke="${color}" stroke-width="2" />
         <g class="rotor ${stopped ? "stopped" : ""}" style="${stopped ? "" : `animation-duration:${duration}s`}">
           ${blades}
           <circle r="2.4" fill="${color}" />
@@ -532,4 +549,4 @@ window.customCards.push({
 });
 
 // eslint-disable-next-line no-console
-console.info("%c kirkhill-card %c 0.2.1 ", "background:#2e7d32;color:#fff", "");
+console.info("%c kirkhill-card %c 0.2.2 ", "background:#2e7d32;color:#fff", "");
