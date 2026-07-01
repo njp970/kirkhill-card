@@ -71,6 +71,14 @@ panels: [map]
 map_style: voyager
 ```
 
+## Example dashboard
+
+[`examples/dashboard.yaml`](examples/dashboard.yaml) is a complete, ready-to-paste
+Home Assistant dashboard built around this card (map, gauges, per-turbine status
+and a year-to-date revenue chart). It needs the [Kirk Hill integration][integration],
+Mushroom and ApexCharts (all via HACS). The header explains how to use the whole
+file or drop just the view in as a tab.
+
 ## Development
 
 ```bash
