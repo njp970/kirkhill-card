@@ -61,6 +61,33 @@ document.body.appendChild(mapOnly);
 await mapOnly.updateComplete;
 const mapHtml = mapOnly.shadowRoot.innerHTML;
 
+// HA 2026.9+: tiles come from core's map_tiles proxy with a websocket token.
+const wsCalls = [];
+const haHass = {
+  states,
+  config: { components: ["map_tiles", "frontend"] },
+  callWS: async (msg) => {
+    wsCalls.push(msg.type);
+    return { token: "tok123" };
+  },
+};
+const haMap = document.createElement("kirkhill-card");
+haMap.setConfig({ type: "custom:kirkhill-card", panels: ["map"] });
+haMap.hass = haHass;
+document.body.appendChild(haMap);
+await haMap.updateComplete;
+await new Promise((r) => setTimeout(r, 0));
+await haMap.updateComplete;
+const haHtml = haMap.shadowRoot.innerHTML;
+
+// map_key opts back into CARTO, even where the proxy exists.
+const keyed = document.createElement("kirkhill-card");
+keyed.setConfig({ type: "custom:kirkhill-card", panels: ["map"], map_key: "abc 123" });
+keyed.hass = haHass;
+document.body.appendChild(keyed);
+await keyed.updateComplete;
+const keyedHtml = keyed.shadowRoot.innerHTML;
+
 const checks = [
   ["card defined", !!customElements.get("kirkhill-card")],
   ["title rendered", html.includes("Kirk Hill Wind Farm")],
@@ -75,6 +102,11 @@ const checks = [
   ["panels:[map] shows map", mapHtml.includes("basemaps.cartocdn.com")],
   ["panels:[map] hides table", !mapHtml.includes("Cap. factor")],
   ["panels:[map] hides revenue", !mapHtml.includes("£")],
+  ["HA proxy: token fetched over websocket", wsCalls.includes("map_tiles/access_token")],
+  ["HA proxy: raster tiles with token", haHtml.includes("/api/map_tiles/raster/") && haHtml.includes("token=tok123")],
+  ["HA proxy: no CARTO requests", !haHtml.includes("cartocdn")],
+  ["HA proxy: OSM attribution", haHtml.includes("OpenStreetMap contributors")],
+  ["map_key: CARTO with key", keyedHtml.includes("basemaps.cartocdn.com") && keyedHtml.includes("key=abc%20123")],
 ];
 
 let ok = true;

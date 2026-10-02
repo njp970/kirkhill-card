@@ -54,11 +54,23 @@ title: Kirk Hill Wind Farm
 | `title` | `Kirk Hill Wind Farm` | Card heading. Set to `""` to hide it (e.g. when using a dashboard section heading). |
 | `panels` | `[map, table, revenue]` | Which panels to render. Use a subset to split the card up, e.g. `panels: [map]` for a map-only panel. |
 | `map_style` | `dark` | Basemap style: `dark`, `light`, or `voyager` (colour). |
+| `map_source` | `auto` | Where map tiles come from. `auto` uses Home Assistant's built-in tile proxy (OpenStreetMap, HA 2026.9+) and falls back to CARTO on older versions; `ha` or `carto` forces one. |
+| `map_key` | — | A free [CARTO Basemaps API key](https://carto.com/basemaps/apikey/). Setting it switches `auto` to CARTO, for its native dark/light/Voyager styles. |
 | `turbine_prefix` | `turbine` | Object-id prefix for turbine entities, e.g. `binary_sensor.<prefix>_t1_running`. |
 | `site_prefix` | `kirk_hill_wind_farm` | Object-id prefix for the site revenue sensors. |
 
 The defaults match the integration's default entity names. Only change the
 prefixes if you renamed the devices/entities.
+
+#### Map tiles
+
+CARTO started requiring an API key in August 2026; without one its tiles show
+an "API KEY REQUIRED" watermark. On Home Assistant 2026.9 or later the card
+needs no setup: it loads OpenStreetMap tiles through Home Assistant's own tile
+proxy, the same way the built-in map does. Those come in one style, so `dark`,
+`light` and `voyager` are approximated with a colour filter. For CARTO's
+original styles, set `map_key`. On older Home Assistant versions, `map_key` is
+needed to get rid of the watermark.
 
 #### Examples
 

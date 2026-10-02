@@ -16,10 +16,14 @@ interface HassEntity {
 
 interface HomeAssistant {
   states: Record<string, HassEntity>;
+  config?: { components?: string[] };
+  callWS?: <T>(msg: Record<string, unknown>) => Promise<T>;
+  hassUrl?: (path?: string) => string;
 }
 
 type PanelName = "map" | "table" | "revenue";
 type MapStyle = "dark" | "light" | "voyager";
+type MapSource = "auto" | "ha" | "carto";
 
 interface KirkhillCardConfig {
   type: string;
@@ -30,6 +34,13 @@ interface KirkhillCardConfig {
   panels?: PanelName[];
   /** Basemap style; defaults to "dark". */
   map_style?: MapStyle;
+  /**
+   * Where basemap tiles come from. "auto" (default) uses Home Assistant's own
+   * tile proxy when available (2026.9+), otherwise CARTO.
+   */
+  map_source?: MapSource;
+  /** CARTO Basemaps API key; setting it selects CARTO under "auto". */
+  map_key?: string;
 }
 
 interface MonthlyItem {
@@ -52,8 +63,9 @@ interface Turbine {
 
 const MONTH_LABELS = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
 
-// Map rendering: a real slippy-map basemap (CARTO dark — the same tiles Home
-// Assistant's own map uses) projected with web-mercator, turbines overlaid.
+// Map rendering: a real slippy-map basemap projected with web-mercator,
+// turbines overlaid. Tiles come from Home Assistant's `map_tiles` proxy
+// (OpenStreetMap, 2026.9+) or CARTO, which needs an API key since 2026-08.
 const MAP_W = 360;
 const MAP_H = 300;
 const MAP_PAD = 52;
@@ -63,8 +75,33 @@ const TILE_BASEMAP: Record<MapStyle, string> = {
   light: "light_all",
   voyager: "rastertiles/voyager",
 };
-const tileUrl = (style: MapStyle, z: number, x: number, y: number) =>
-  `https://a.basemaps.cartocdn.com/${TILE_BASEMAP[style]}/${z}/${x}/${y}.png`;
+const cartoTileUrl = (style: MapStyle, z: number, x: number, y: number, key?: string) =>
+  `https://basemaps.cartocdn.com/${TILE_BASEMAP[style]}/${z}/${x}/${y}.png` +
+  (key ? `?key=${encodeURIComponent(key)}` : "");
+
+// HA rotates the proxy token every 30 min and accepts the previous one too, so
+// refreshing after 20 min never leaves a rendered tile URL dead.
+const HA_TOKEN_TTL_MS = 20 * 60 * 1000;
+let haToken: { value: string; fetched: number } | null = null;
+let haTokenRequest: Promise<string | null> | null = null;
+
+function fetchHaToken(hass: HomeAssistant, force = false): Promise<string | null> {
+  const fresh = haToken && Date.now() - haToken.fetched < HA_TOKEN_TTL_MS;
+  if (fresh && !force) return Promise.resolve(haToken!.value);
+  if (!haTokenRequest) {
+    haTokenRequest = hass
+      .callWS!<{ token: string }>({ type: "map_tiles/access_token" })
+      .then((r) => {
+        haToken = { value: r.token, fetched: Date.now() };
+        return r.token;
+      })
+      .catch(() => null)
+      .finally(() => {
+        haTokenRequest = null;
+      });
+  }
+  return haTokenRequest;
+}
 
 /** Longitude → global pixel X at zoom z. */
 function lon2px(lon: number, z: number): number {
@@ -103,10 +140,15 @@ export class KirkhillCard extends LitElement {
   declare hass: HomeAssistant;
   declare private _config: KirkhillCardConfig;
 
+  declare private _haToken: string | null;
+
   static properties = {
     hass: { attribute: false },
     _config: { state: true },
+    _haToken: { state: true },
   };
+
+  private _tokenRetried = false;
 
   private _mapClipId = `khmap-${Math.random().toString(36).slice(2, 9)}`;
 
@@ -149,8 +191,18 @@ export class KirkhillCard extends LitElement {
       image-rendering: auto;
     }
     /* CARTO dark is very dark on a black dashboard — lift it for visibility. */
-    svg.map.dark image {
+    svg.map.carto.dark image {
       filter: brightness(1.7) contrast(1.05) saturate(0.95);
+    }
+    /* HA's proxy serves the standard OSM style only; approximate the others. */
+    svg.map.ha.dark image {
+      filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9) saturate(0.4);
+    }
+    svg.map.ha.light image {
+      filter: grayscale(0.9) brightness(1.04);
+    }
+    svg.map.ha.voyager image {
+      filter: saturate(0.75) brightness(1.02);
     }
     .turbine-label {
       font-size: 9px;
@@ -284,7 +336,7 @@ export class KirkhillCard extends LitElement {
   }
 
   protected shouldUpdate(changed: PropertyValues): boolean {
-    return changed.has("hass") || changed.has("_config");
+    return changed.has("hass") || changed.has("_config") || changed.has("_haToken");
   }
 
   private get _turbinePrefix(): string {
@@ -340,6 +392,38 @@ export class KirkhillCard extends LitElement {
     return 8;
   }
 
+  /** Resolve the tile source for this render; kicks off a token fetch if needed. */
+  private _mapSource(): "ha" | "carto" {
+    const want = this._config.map_source ?? "auto";
+    if (want === "carto") return "carto";
+    const haAvailable =
+      !!this.hass.callWS && (this.hass.config?.components?.includes("map_tiles") ?? false);
+    if (want === "ha" || (want === "auto" && haAvailable && !this._config.map_key)) {
+      if (!haAvailable) return "carto";
+      void fetchHaToken(this.hass).then((token) => this._setHaToken(token));
+      return "ha";
+    }
+    return "carto";
+  }
+
+  private _haTileUrl(z: number, x: number, y: number): string {
+    const path = `/api/map_tiles/raster/${z}/${x}/${y}.png?token=${this._haToken}`;
+    return this.hass.hassUrl ? this.hass.hassUrl(path) : path;
+  }
+
+  /** A tile 403s if its token expired while the dashboard sat open: refetch once. */
+  private _onTileError(): void {
+    if (this._tokenRetried) return;
+    this._tokenRetried = true;
+    void fetchHaToken(this.hass, true).then((token) => this._setHaToken(token));
+  }
+
+  private _setHaToken(token: string | null): void {
+    if (!token || token === this._haToken) return;
+    this._haToken = token;
+    this._tokenRetried = false;
+  }
+
   private _renderTurbineMarker(t: Turbine, x: number, y: number): TemplateResult {
     const color = statusColor(t.running);
     const duration = spinDuration(t.rpm);
@@ -368,6 +452,8 @@ export class KirkhillCard extends LitElement {
     }
 
     const style: MapStyle = this._config.map_style ?? "dark";
+    const source = this._mapSource();
+    const tilesReady = source === "carto" || !!this._haToken;
     const z = this._chooseZoom(withCoords);
     const xs = withCoords.map((t) => lon2px(t.lon as number, z));
     const ys = withCoords.map((t) => lat2px(t.lat as number, z));
@@ -382,14 +468,17 @@ export class KirkhillCard extends LitElement {
       for (let ty = Math.floor(top / TILE_SIZE); ty <= Math.floor((top + MAP_H) / TILE_SIZE); ty++) {
         if (ty < 0 || ty >= maxTile) continue;
         const wx = ((tx % maxTile) + maxTile) % maxTile;
+        if (!tilesReady) continue;
+        const href =
+          source === "ha" ? this._haTileUrl(z, wx, ty) : cartoTileUrl(style, z, wx, ty, this._config.map_key);
         tiles.push(
-          svg`<image href="${tileUrl(style, z, wx, ty)}" x="${tx * TILE_SIZE - left}" y="${ty * TILE_SIZE - top}" width="${TILE_SIZE}" height="${TILE_SIZE}" />`,
+          svg`<image href="${href}" x="${tx * TILE_SIZE - left}" y="${ty * TILE_SIZE - top}" width="${TILE_SIZE}" height="${TILE_SIZE}" @error=${source === "ha" ? this._onTileError : nothing} />`,
         );
       }
     }
 
     return html`
-      <svg class="map ${style}" viewBox="0 0 ${MAP_W} ${MAP_H}" role="img" aria-label="Turbine map">
+      <svg class="map ${style} ${source}" viewBox="0 0 ${MAP_W} ${MAP_H}" role="img" aria-label="Turbine map">
         <defs>
           <clipPath id="${this._mapClipId}">
             <rect x="0" y="0" width="${MAP_W}" height="${MAP_H}" rx="10" />
@@ -400,7 +489,7 @@ export class KirkhillCard extends LitElement {
           ${withCoords.map((t) =>
             this._renderTurbineMarker(t, lon2px(t.lon as number, z) - left, lat2px(t.lat as number, z) - top),
           )}
-          <text class="map-attr" x="${MAP_W - 5}" y="${MAP_H - 6}">© OpenStreetMap © CARTO</text>
+          <text class="map-attr" x="${MAP_W - 5}" y="${MAP_H - 6}">${source === "ha" ? "© OpenStreetMap contributors" : "© OpenStreetMap © CARTO"}</text>
         </g>
         <rect x="0.5" y="0.5" width="${MAP_W - 1}" height="${MAP_H - 1}" rx="10" fill="none" stroke="var(--divider-color)" />
       </svg>
@@ -549,4 +638,4 @@ window.customCards.push({
 });
 
 // eslint-disable-next-line no-console
-console.info("%c kirkhill-card %c 0.2.2 ", "background:#2e7d32;color:#fff", "");
+console.info("%c kirkhill-card %c 0.3.0 ", "background:#2e7d32;color:#fff", "");
